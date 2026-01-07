@@ -1,0 +1,24 @@
+# ===== Unity =====
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+UserSettings/
+
+# ===== Visual Studio =====
+.vs/
+.vscode/
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+UpgradeLog.htm
+.vsconfig
+
+# ===== C# / Unity auto-generated =====
+*.csproj
+*.sln
+
