@@ -22,3 +22,7 @@ UpgradeLog.htm
 *.csproj
 *.sln
 
+# Android builds / APK
+*.apk
+test/*.apk
+
