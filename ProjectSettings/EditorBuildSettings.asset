@@ -6,6 +6,9 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/Scenes/android.unity
-    guid: fe3171e32d2926548a615c6bf345933c
+    path: "Assets/Scenes/\uAE30\uC900\uC544\uBC14\uD0C0 1.unity"
+    guid: e8fede4cb1ca5264c94539b56e57f9b3
+  - enabled: 1
+    path: Assets/Scenes/mp+bd.unity
+    guid: a1bf9d42de2cf50478bdda772a4336a4
   m_configObjects: {}
