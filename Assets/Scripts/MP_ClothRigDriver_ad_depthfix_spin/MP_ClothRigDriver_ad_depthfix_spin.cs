@@ -59,9 +59,25 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
         public bool useCameraForwardAsRollRef = true;
         public bool freezeRollToBindPose = true;
 
+        [Header("Manual Axis Override")]
+        public bool useManualAxis = false;
+        public Vector3 leftArmAxisInParent = Vector3.right;
+        public Vector3 leftForeArmAxisInParent = Vector3.right;
+        public Vector3 rightArmAxisInParent = Vector3.left;
+        public Vector3 rightForeArmAxisInParent = Vector3.left;
+
+        [Header("Manual Forward Override")]
+        public bool useManualForward = false;
+        public Vector3 leftArmForwardInParent = Vector3.forward;
+        public Vector3 leftForeArmForwardInParent = Vector3.forward;
+        public Vector3 rightArmForwardInParent = Vector3.forward;
+        public Vector3 rightForeArmForwardInParent = Vector3.forward;
+
         [Header("Per-side Fix")]
-        public bool flipLeftBindForward = true;
-        public bool flipLeftForeBindForward = true;
+        public bool flipLeftBindForward = false;
+        public bool flipLeftForeBindForward = false;
+        public bool flipRightBindForward = false;
+        public bool flipRightForeBindForward = false;
 
         [Header("Arm Length Fit")]
         public bool fitArmLengths = true;
@@ -171,8 +187,7 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
             Vector3 midHip = (lHw + rHw) * 0.5f;
             midHip.y += hipsYOffset;
 
-            Vector3 dirShoulder = (rSw - lSw);
-            float shoulderWidthWorld = dirShoulder.magnitude;
+            float shoulderWidthWorld = (rSw - lSw).magnitude;
 
             if (driveClothPivotYaw)
             {
@@ -205,12 +220,9 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
                     _lockedScale = transform.localScale;
                     _hasLockedScale = true;
                 }
-                else
+                else if (_hasLockedScale)
                 {
-                    if (_hasLockedScale)
-                    {
-                        transform.localScale = _lockedScale;
-                    }
+                    transform.localScale = _lockedScale;
                 }
             }
 
@@ -225,21 +237,10 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
             {
                 if (leftHand != null)
                     leftHand.localRotation = Quaternion.Slerp(leftHand.localRotation, _lHandBindLocal, handFollowSlerp);
+
                 if (rightHand != null)
                     rightHand.localRotation = Quaternion.Slerp(rightHand.localRotation, _rHandBindLocal, handFollowSlerp);
             }
-        }
-
-        public void LockScaleNow()
-        {
-            _lockedScale = transform.localScale;
-            _hasLockedScale = true;
-            allowAutoScaleUpdate = false;
-        }
-
-        public void UnlockScale()
-        {
-            allowAutoScaleUpdate = true;
         }
 
         private Vector3 CalcShoulderAlignDeltaWorld(Vector3 trackedShoulderCenterWorld)
@@ -251,7 +252,6 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
             if (l == null || r == null) return Vector3.zero;
 
             Vector3 avatarShoulderCenter = (l.position + r.position) * 0.5f;
-
             Vector3 rawDelta = trackedShoulderCenterWorld - avatarShoulderCenter;
 
             float t = 1f - Mathf.Pow(1f - shoulderAlignLerp, Time.deltaTime * 60f);
@@ -276,7 +276,7 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
 
             if (freezeYawWhenNarrow)
             {
-                bool frozenNow = false;
+                bool frozenNow;
 
                 if (useYawHysteresis)
                 {
@@ -286,7 +286,7 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
                 }
                 else
                 {
-                    frozenNow = (shoulderWidth01 < shoulderNarrowThreshold01);
+                    frozenNow = shoulderWidth01 < shoulderNarrowThreshold01;
                 }
 
                 if (frozenNow && !_yawFrozenPrev)
@@ -300,7 +300,6 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
                 }
 
                 _yawFrozenPrev = frozenNow;
-
                 if (frozenNow) return;
             }
 
@@ -324,8 +323,10 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
 
                 if (invertZ)
                 {
-                    lzS = -lzS; rzS = -rzS;
-                    lzH = -lzH; rzH = -rzH;
+                    lzS = -lzS;
+                    rzS = -rzS;
+                    lzH = -lzH;
+                    rzH = -rzH;
                 }
 
                 lw = lw0 + camF * lzS;
@@ -337,17 +338,11 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
             Vector3 shoulderCenter = (lw + rw) * 0.5f;
             Vector3 hipCenter = (lh + rh) * 0.5f;
 
-            Vector3 right = (rw - lw);
-            Vector3 up = (shoulderCenter - hipCenter);
-
+            Vector3 right = (rw - lw).normalized;
+            Vector3 up = (shoulderCenter - hipCenter).normalized;
             if (right.sqrMagnitude < 1e-6f || up.sqrMagnitude < 1e-6f) return;
-            right.Normalize();
-            up.Normalize();
 
-            Vector3 forward = Vector3.Cross(right, up);
-            if (forward.sqrMagnitude < 1e-6f) return;
-            forward.Normalize();
-
+            Vector3 forward = Vector3.Cross(right, up).normalized;
             Vector3 fW = forward;
             fW.y = 0f;
             if (fW.sqrMagnitude < 1e-6f) return;
@@ -369,7 +364,6 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
 
             float x = Vector3.Dot(fW, camRightFlat);
             float z = Vector3.Dot(fW, camForwardFlat);
-
             float yawDeg = -Mathf.Atan2(x, z) * Mathf.Rad2Deg;
 
             if (!_yawInitialized)
@@ -382,7 +376,7 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
             float maxStep = Mathf.Max(1f, maxYawSpeedDegPerSec) * Time.deltaTime;
             float delta = Mathf.DeltaAngle(_yawDegSmoothed, blended);
             delta = Mathf.Clamp(delta, -maxStep, maxStep);
-            _yawDegSmoothed = _yawDegSmoothed + delta;
+            _yawDegSmoothed += delta;
 
             Quaternion yawLocal = Quaternion.Euler(0f, _yawDegSmoothed, 0f);
             Quaternion targetLocal = _clothPivotBaseLocalRot * yawLocal;
@@ -398,12 +392,12 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
             if (leftArm != null && leftForeArm != null &&
                 runner.TryGetLeftArm3Points01(out var ls, out var le, out var lw))
             {
-                Vector3 S = targetCamera.ViewportToWorldPoint(new Vector3(ls.x, 1f - ls.y, depth));
-                Vector3 E = targetCamera.ViewportToWorldPoint(new Vector3(le.x, 1f - le.y, depth));
-                Vector3 W = targetCamera.ViewportToWorldPoint(new Vector3(lw.x, 1f - lw.y, depth));
+                Vector3 s = targetCamera.ViewportToWorldPoint(new Vector3(ls.x, 1f - ls.y, depth));
+                Vector3 e = targetCamera.ViewportToWorldPoint(new Vector3(le.x, 1f - le.y, depth));
+                Vector3 w = targetCamera.ViewportToWorldPoint(new Vector3(lw.x, 1f - lw.y, depth));
 
-                Vector3 upperDir = (E - S);
-                Vector3 lowerDir = (W - E);
+                Vector3 upperDir = e - s;
+                Vector3 lowerDir = w - e;
 
                 if (projectToCameraPlane)
                 {
@@ -411,22 +405,22 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
                     lowerDir = Vector3.ProjectOnPlane(lowerDir, camForward);
                 }
 
-                Vector3 lArmF = flipLeftBindForward ? -_lArmRefForwardP : _lArmRefForwardP;
-                Vector3 lForeF = flipLeftForeBindForward ? -_lForeRefForwardP : _lForeRefForwardP;
+                Vector3 armForward = flipLeftBindForward ? -_lArmRefForwardP : _lArmRefForwardP;
+                Vector3 foreForward = flipLeftForeBindForward ? -_lForeRefForwardP : _lForeRefForwardP;
 
-                ApplyBoneTarget(leftArm, upperDir, _lArmBindLocal, _lArmAxisP, lArmF, leftArmRotOffsetEuler);
-                ApplyBoneTarget(leftForeArm, lowerDir, _lForeBindLocal, _lForeAxisP, lForeF, leftForeArmRotOffsetEuler);
+                ApplyBoneTarget(leftArm, upperDir, _lArmBindLocal, _lArmAxisP, armForward, leftArmRotOffsetEuler);
+                ApplyBoneTarget(leftForeArm, lowerDir, _lForeBindLocal, _lForeAxisP, foreForward, leftForeArmRotOffsetEuler);
             }
 
             if (rightArm != null && rightForeArm != null &&
                 runner.TryGetRightArm3Points01(out var rs, out var re, out var rw))
             {
-                Vector3 S = targetCamera.ViewportToWorldPoint(new Vector3(rs.x, 1f - rs.y, depth));
-                Vector3 E = targetCamera.ViewportToWorldPoint(new Vector3(re.x, 1f - re.y, depth));
-                Vector3 W = targetCamera.ViewportToWorldPoint(new Vector3(rw.x, 1f - rw.y, depth));
+                Vector3 s = targetCamera.ViewportToWorldPoint(new Vector3(rs.x, 1f - rs.y, depth));
+                Vector3 e = targetCamera.ViewportToWorldPoint(new Vector3(re.x, 1f - re.y, depth));
+                Vector3 w = targetCamera.ViewportToWorldPoint(new Vector3(rw.x, 1f - rw.y, depth));
 
-                Vector3 upperDir = (E - S);
-                Vector3 lowerDir = (W - E);
+                Vector3 upperDir = e - s;
+                Vector3 lowerDir = w - e;
 
                 if (projectToCameraPlane)
                 {
@@ -434,8 +428,11 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
                     lowerDir = Vector3.ProjectOnPlane(lowerDir, camForward);
                 }
 
-                ApplyBoneTarget(rightArm, upperDir, _rArmBindLocal, _rArmAxisP, _rArmRefForwardP, rightArmRotOffsetEuler);
-                ApplyBoneTarget(rightForeArm, lowerDir, _rForeBindLocal, _rForeAxisP, _rForeRefForwardP, rightForeArmRotOffsetEuler);
+                Vector3 armForward = flipRightBindForward ? -_rArmRefForwardP : _rArmRefForwardP;
+                Vector3 foreForward = flipRightForeBindForward ? -_rForeRefForwardP : _rForeRefForwardP;
+
+                ApplyBoneTarget(rightArm, upperDir, _rArmBindLocal, _rArmAxisP, armForward, rightArmRotOffsetEuler);
+                ApplyBoneTarget(rightForeArm, lowerDir, _rForeBindLocal, _rForeAxisP, foreForward, rightForeArmRotOffsetEuler);
             }
         }
 
@@ -446,12 +443,12 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
 
             if (runner.TryGetLeftArm3Points01(out var ls, out var le, out var lw))
             {
-                Vector3 S = targetCamera.ViewportToWorldPoint(new Vector3(ls.x, 1f - ls.y, depth));
-                Vector3 E = targetCamera.ViewportToWorldPoint(new Vector3(le.x, 1f - le.y, depth));
-                Vector3 W = targetCamera.ViewportToWorldPoint(new Vector3(lw.x, 1f - lw.y, depth));
+                Vector3 s = targetCamera.ViewportToWorldPoint(new Vector3(ls.x, 1f - ls.y, depth));
+                Vector3 e = targetCamera.ViewportToWorldPoint(new Vector3(le.x, 1f - le.y, depth));
+                Vector3 w = targetCamera.ViewportToWorldPoint(new Vector3(lw.x, 1f - lw.y, depth));
 
-                float desiredUpper = Vector3.Distance(S, E);
-                float desiredLower = Vector3.Distance(E, W);
+                float desiredUpper = Vector3.Distance(s, e);
+                float desiredLower = Vector3.Distance(e, w);
 
                 float bindUpper = Vector3.Distance(leftArm.position, leftForeArm.position);
                 float bindLower = Vector3.Distance(leftForeArm.position, leftHand.position);
@@ -476,12 +473,12 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
 
             if (runner.TryGetRightArm3Points01(out var rs, out var re, out var rw))
             {
-                Vector3 S = targetCamera.ViewportToWorldPoint(new Vector3(rs.x, 1f - rs.y, depth));
-                Vector3 E = targetCamera.ViewportToWorldPoint(new Vector3(re.x, 1f - re.y, depth));
-                Vector3 W = targetCamera.ViewportToWorldPoint(new Vector3(rw.x, 1f - rw.y, depth));
+                Vector3 s = targetCamera.ViewportToWorldPoint(new Vector3(rs.x, 1f - rs.y, depth));
+                Vector3 e = targetCamera.ViewportToWorldPoint(new Vector3(re.x, 1f - re.y, depth));
+                Vector3 w = targetCamera.ViewportToWorldPoint(new Vector3(rw.x, 1f - rw.y, depth));
 
-                float desiredUpper = Vector3.Distance(S, E);
-                float desiredLower = Vector3.Distance(E, W);
+                float desiredUpper = Vector3.Distance(s, e);
+                float desiredLower = Vector3.Distance(e, w);
 
                 float bindUpper = Vector3.Distance(rightArm.position, rightForeArm.position);
                 float bindLower = Vector3.Distance(rightForeArm.position, rightHand.position);
@@ -545,11 +542,9 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
             if (bindAxis.sqrMagnitude < 1e-6f) bindAxis = Vector3.up;
 
             Quaternion bindBasisP = Quaternion.LookRotation(bindForward.normalized, bindAxis.normalized);
-
             Quaternion deltaP = targetBasisP * Quaternion.Inverse(bindBasisP);
 
             Quaternion targetLocal = bindLocal * deltaP * Quaternion.Euler(eulerOffset);
-
             bone.localRotation = Quaternion.Slerp(bone.localRotation, targetLocal, armSlerp);
         }
 
@@ -560,14 +555,30 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
             if (leftArm != null && leftArm.parent != null)
             {
                 _lArmBindLocal = leftArm.localRotation;
-                CaptureAxisAndForwardInParent(leftArm, out _lArmAxisP, out _lArmRefForwardP);
+
+                if (useManualAxis)
+                    _lArmAxisP = SafeNormalized(leftArmAxisInParent, Vector3.up);
+                else
+                    CaptureAxisAndForwardInParent(leftArm, out _lArmAxisP, out _lArmRefForwardP);
+
+                if (useManualForward)
+                    _lArmRefForwardP = SafeProjectedNormalized(leftArmForwardInParent, _lArmAxisP, Vector3.forward);
             }
+
             if (leftForeArm != null && leftForeArm.parent != null)
             {
                 _lForeBindLocal = leftForeArm.localRotation;
-                CaptureAxisAndForwardInParent(leftForeArm, out _lForeAxisP, out _lForeRefForwardP);
                 _lForeBindLocalPos = leftForeArm.localPosition;
+
+                if (useManualAxis)
+                    _lForeAxisP = SafeNormalized(leftForeArmAxisInParent, Vector3.up);
+                else
+                    CaptureAxisAndForwardInParent(leftForeArm, out _lForeAxisP, out _lForeRefForwardP);
+
+                if (useManualForward)
+                    _lForeRefForwardP = SafeProjectedNormalized(leftForeArmForwardInParent, _lForeAxisP, Vector3.forward);
             }
+
             if (leftHand != null)
             {
                 _lHandBindLocalPos = leftHand.localPosition;
@@ -577,14 +588,30 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
             if (rightArm != null && rightArm.parent != null)
             {
                 _rArmBindLocal = rightArm.localRotation;
-                CaptureAxisAndForwardInParent(rightArm, out _rArmAxisP, out _rArmRefForwardP);
+
+                if (useManualAxis)
+                    _rArmAxisP = SafeNormalized(rightArmAxisInParent, Vector3.up);
+                else
+                    CaptureAxisAndForwardInParent(rightArm, out _rArmAxisP, out _rArmRefForwardP);
+
+                if (useManualForward)
+                    _rArmRefForwardP = SafeProjectedNormalized(rightArmForwardInParent, _rArmAxisP, Vector3.forward);
             }
+
             if (rightForeArm != null && rightForeArm.parent != null)
             {
                 _rForeBindLocal = rightForeArm.localRotation;
-                CaptureAxisAndForwardInParent(rightForeArm, out _rForeAxisP, out _rForeRefForwardP);
                 _rForeBindLocalPos = rightForeArm.localPosition;
+
+                if (useManualAxis)
+                    _rForeAxisP = SafeNormalized(rightForeArmAxisInParent, Vector3.up);
+                else
+                    CaptureAxisAndForwardInParent(rightForeArm, out _rForeAxisP, out _rForeRefForwardP);
+
+                if (useManualForward)
+                    _rForeRefForwardP = SafeProjectedNormalized(rightForeArmForwardInParent, _rForeAxisP, Vector3.forward);
             }
+
             if (rightHand != null)
             {
                 _rHandBindLocalPos = rightHand.localPosition;
@@ -597,12 +624,25 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
         private void CaptureAxisAndForwardInParent(Transform bone, out Vector3 axisP, out Vector3 forwardP)
         {
             axisP = Vector3.up;
+            forwardP = Vector3.forward;
 
-            if (bone.childCount > 0)
+            Transform bestChild = null;
+            float bestDist = 0f;
+
+            for (int i = 0; i < bone.childCount; i++)
             {
-                Vector3 childWorld = bone.GetChild(0).position;
-                Vector3 boneWorld = bone.position;
-                Vector3 dirWorld = (childWorld - boneWorld);
+                Transform c = bone.GetChild(i);
+                float d = Vector3.Distance(bone.position, c.position);
+                if (d > bestDist)
+                {
+                    bestDist = d;
+                    bestChild = c;
+                }
+            }
+
+            if (bestChild != null)
+            {
+                Vector3 dirWorld = bestChild.position - bone.position;
                 if (dirWorld.sqrMagnitude > 1e-6f)
                 {
                     axisP = bone.parent.InverseTransformDirection(dirWorld.normalized);
@@ -612,16 +652,56 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
             Vector3 fWorld = bone.forward;
             Vector3 fP = bone.parent.InverseTransformDirection(fWorld);
             forwardP = Vector3.ProjectOnPlane(fP, axisP);
+
             if (forwardP.sqrMagnitude < 1e-6f)
             {
                 Vector3 rP = bone.parent.InverseTransformDirection(bone.right);
                 forwardP = Vector3.ProjectOnPlane(rP, axisP);
-                if (forwardP.sqrMagnitude < 1e-6f) forwardP = Vector3.forward;
+                if (forwardP.sqrMagnitude < 1e-6f)
+                    forwardP = Vector3.forward;
             }
-            forwardP.Normalize();
 
             if (axisP.sqrMagnitude < 1e-6f) axisP = Vector3.up;
+
             axisP.Normalize();
+            forwardP.Normalize();
+        }
+
+        private Vector3 SafeNormalized(Vector3 v, Vector3 fallback)
+        {
+            if (v.sqrMagnitude < 1e-6f) return fallback;
+            return v.normalized;
+        }
+
+        private Vector3 SafeProjectedNormalized(Vector3 v, Vector3 planeNormal, Vector3 fallback)
+        {
+            Vector3 p = Vector3.ProjectOnPlane(v, planeNormal);
+            if (p.sqrMagnitude < 1e-6f) return fallback;
+            return p.normalized;
+        }
+
+        public void LockScaleNow()
+        {
+            _lockedScale = transform.localScale;
+            _hasLockedScale = true;
+            allowAutoScaleUpdate = false;
+        }
+
+        public void UnlockScale()
+        {
+            allowAutoScaleUpdate = true;
+        }
+
+        public void SetScaleLock(bool locked)
+        {
+            if (locked)
+            {
+                LockScaleNow();
+            }
+            else
+            {
+                UnlockScale();
+            }
         }
     }
 }

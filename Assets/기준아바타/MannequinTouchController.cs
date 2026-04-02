@@ -8,19 +8,46 @@ public class MannequinTouchController_Final : MonoBehaviour
     [Header("Refs")]
     public Transform mannequinRoot;
     public Camera mainCam;
+    public Animator animator;
 
     [Header("Layers")]
     public LayerMask boneLayerMask;
 
-    [Header("UI")]
+    [Header("UI Buttons")]
     public Button resetButton;
+    public Button idleButton;
+    public Button walkButton;
+    public Button sitButton;
 
-    [Header("Speed")]
-    public float rootDegPerPixel = 0.45f;
-    public float boneDegPerPixel = 0.75f;
+    [Header("Animation State Names")]
+    public string idleStateName = "Idle";
+    public string walkStateName = "Walk";
+    public string sitStateName = "Sit";
+
+    [Header("Animation Start")]
+    public bool playAnimationOnStart = false;
+    public string startStateName = "Idle";
+    public bool stopAnimationWhenManualBoneControlStarts = true;
+
+    [Header("Root")]
+    public float rootDegPerPixel = 0.42f;
     public bool allowPitch = true;
-    public float pitchDegPerPixel = 0.30f;
-    public float maxPitch = 25f;
+    public float pitchDegPerPixel = 0.24f;
+    public float maxPitch = 20f;
+
+    [Header("Bone")]
+    public float boneSwingDegPerPixel = 0.30f;
+    public float boneTwistDegPerPixel = 0.14f;
+    public float selectedBoneSensitivity = 1.02f;
+    public float dragDeadZonePixels = 0.35f;
+
+    [Header("Input Stabilize")]
+    public float inputScale = 0.52f;
+    public float maxDeltaPerFrame = 8.0f;
+    public float stationaryDeltaScale = 0.24f;
+
+    [Header("Pick")]
+    public float pickSphereRadius = 0.07f;
 
     [Header("Smoothing")]
     public float rootSmoothing = 14f;
@@ -31,18 +58,26 @@ public class MannequinTouchController_Final : MonoBehaviour
     public float markerScale = 0.08f;
 
     [Header("Joint Limits")]
-    public List<HingeLimit> hingeLimits = new List<HingeLimit>();
+    public List<JointLimit> jointLimits = new List<JointLimit>();
 
     [Serializable]
-    public class HingeLimit
+    public class JointLimit
     {
         public Transform bone;
-        public Axis axis = Axis.X;
-        public float minDeg = -5f;
-        public float maxDeg = 140f;
+        public bool limitX = true;
+        public float minX = -80f;
+        public float maxX = 80f;
+        public bool limitY = true;
+        public float minY = -60f;
+        public float maxY = 60f;
+        public bool limitZ = true;
+        public float minZ = -90f;
+        public float maxZ = 90f;
+        public float sensitivity = 1f;
+        public bool invertX;
+        public bool invertY;
+        public bool invertZ;
     }
-
-    public enum Axis { X, Y, Z }
 
     Transform _selectedBone;
     bool _pressedOnBone;
@@ -51,10 +86,10 @@ public class MannequinTouchController_Final : MonoBehaviour
     float _pitch;
 
     Quaternion _rootTargetRot;
-    Quaternion _boneTargetWorldRot;
+    Quaternion _boneTargetLocalRot;
 
     readonly Dictionary<Transform, Quaternion> _restLocalRot = new Dictionary<Transform, Quaternion>();
-    readonly Dictionary<Transform, HingeLimit> _hingeMap = new Dictionary<Transform, HingeLimit>();
+    readonly Dictionary<Transform, JointLimit> _jointMap = new Dictionary<Transform, JointLimit>();
 
     GameObject _marker;
     Material _markerMat;
@@ -64,7 +99,11 @@ public class MannequinTouchController_Final : MonoBehaviour
         if (mainCam == null) mainCam = Camera.main;
 
         CacheRestPose();
-        BuildHingeMap();
+
+        if (jointLimits == null || jointLimits.Count == 0)
+            AutoFillHumanJoints();
+
+        BuildJointMap();
         EnsureMarker();
 
         if (resetButton != null)
@@ -73,11 +112,46 @@ public class MannequinTouchController_Final : MonoBehaviour
             resetButton.onClick.AddListener(ResetPose);
         }
 
+        if (idleButton != null)
+        {
+            idleButton.onClick.RemoveListener(PlayIdle);
+            idleButton.onClick.AddListener(PlayIdle);
+        }
+
+        if (walkButton != null)
+        {
+            walkButton.onClick.RemoveListener(PlayWalk);
+            walkButton.onClick.AddListener(PlayWalk);
+        }
+
+        if (sitButton != null)
+        {
+            sitButton.onClick.RemoveListener(PlaySit);
+            sitButton.onClick.AddListener(PlaySit);
+        }
+
         if (mannequinRoot != null)
             _rootTargetRot = mannequinRoot.rotation;
+    }
 
-        if (hingeLimits == null || hingeLimits.Count == 0)
-            AutoFillCommonHinges();
+    void Start()
+    {
+        if (animator != null)
+        {
+            animator.applyRootMotion = false;
+
+            if (playAnimationOnStart)
+            {
+                animator.enabled = true;
+                animator.Rebind();
+                animator.Update(0f);
+                animator.Play(startStateName, 0, 0f);
+            }
+            else
+            {
+                animator.enabled = false;
+            }
+        }
     }
 
     void CacheRestPose()
@@ -85,57 +159,81 @@ public class MannequinTouchController_Final : MonoBehaviour
         _restLocalRot.Clear();
         if (mannequinRoot == null) return;
 
-        var trs = mannequinRoot.GetComponentsInChildren<Transform>(true);
+        Transform[] trs = mannequinRoot.GetComponentsInChildren<Transform>(true);
         for (int i = 0; i < trs.Length; i++)
             _restLocalRot[trs[i]] = trs[i].localRotation;
     }
 
-    void BuildHingeMap()
+    void BuildJointMap()
     {
-        _hingeMap.Clear();
-        if (hingeLimits == null) return;
+        _jointMap.Clear();
+        if (jointLimits == null) return;
 
-        for (int i = 0; i < hingeLimits.Count; i++)
+        for (int i = 0; i < jointLimits.Count; i++)
         {
-            var h = hingeLimits[i];
-            if (h != null && h.bone != null)
-                _hingeMap[h.bone] = h;
+            JointLimit j = jointLimits[i];
+            if (j != null && j.bone != null)
+                _jointMap[j.bone] = j;
         }
     }
 
-    void AutoFillCommonHinges()
+    void AutoFillHumanJoints()
     {
-        hingeLimits = new List<HingeLimit>();
+        jointLimits = new List<JointLimit>();
 
-        AddHingeIfFound("mixamorig:LeftForeArm", Axis.X, -5f, 140f);
-        AddHingeIfFound("mixamorig:RightForeArm", Axis.X, -5f, 140f);
-        AddHingeIfFound("mixamorig:LeftLeg", Axis.X, -5f, 140f);
-        AddHingeIfFound("mixamorig:RightLeg", Axis.X, -5f, 140f);
+        AddJointIfFound("mixamorig:LeftArm", true, -95f, 110f, true, -45f, 55f, true, -115f, 70f, 1.00f, false, false, false);
+        AddJointIfFound("mixamorig:RightArm", true, -95f, 110f, true, -55f, 45f, true, -70f, 115f, 1.00f, false, false, false);
 
-        BuildHingeMap();
+        AddJointIfFound("mixamorig:LeftForeArm", true, -5f, 138f, false, 0f, 0f, false, 0f, 0f, 0.92f, false, false, false);
+        AddJointIfFound("mixamorig:RightForeArm", true, -5f, 138f, false, 0f, 0f, false, 0f, 0f, 0.92f, false, false, false);
+
+        AddJointIfFound("mixamorig:LeftUpLeg", true, -78f, 88f, true, -22f, 22f, true, -22f, 42f, 0.95f, false, false, false);
+        AddJointIfFound("mixamorig:RightUpLeg", true, -78f, 88f, true, -22f, 22f, true, -42f, 22f, 0.95f, false, false, false);
+
+        AddJointIfFound("mixamorig:LeftLeg", true, -2f, 142f, false, 0f, 0f, false, 0f, 0f, 0.90f, false, false, false);
+        AddJointIfFound("mixamorig:RightLeg", true, -2f, 142f, false, 0f, 0f, false, 0f, 0f, 0.90f, false, false, false);
     }
 
-    void AddHingeIfFound(string boneName, Axis axis, float minDeg, float maxDeg)
+    void AddJointIfFound(
+        string boneName,
+        bool limitX, float minX, float maxX,
+        bool limitY, float minY, float maxY,
+        bool limitZ, float minZ, float maxZ,
+        float sensitivity,
+        bool invertX, bool invertY, bool invertZ)
     {
         Transform t = FindDeepChildByName(mannequinRoot, boneName);
         if (t == null) return;
 
-        hingeLimits.Add(new HingeLimit
-        {
-            bone = t,
-            axis = axis,
-            minDeg = minDeg,
-            maxDeg = maxDeg
-        });
+        JointLimit j = new JointLimit();
+        j.bone = t;
+        j.limitX = limitX;
+        j.minX = minX;
+        j.maxX = maxX;
+        j.limitY = limitY;
+        j.minY = minY;
+        j.maxY = maxY;
+        j.limitZ = limitZ;
+        j.minZ = minZ;
+        j.maxZ = maxZ;
+        j.sensitivity = sensitivity;
+        j.invertX = invertX;
+        j.invertY = invertY;
+        j.invertZ = invertZ;
+
+        jointLimits.Add(j);
     }
 
     Transform FindDeepChildByName(Transform root, string name)
     {
         if (root == null) return null;
 
-        var trs = root.GetComponentsInChildren<Transform>(true);
+        Transform[] trs = root.GetComponentsInChildren<Transform>(true);
         for (int i = 0; i < trs.Length; i++)
-            if (trs[i].name == name) return trs[i];
+        {
+            if (trs[i].name == name)
+                return trs[i];
+        }
 
         return null;
     }
@@ -148,7 +246,8 @@ public class MannequinTouchController_Final : MonoBehaviour
         {
             _marker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             _marker.name = "SelectedBoneMarker";
-            DestroyCollider(_marker);
+            Collider c = _marker.GetComponent<Collider>();
+            if (c != null) Destroy(c);
         }
 
         if (_markerMat == null)
@@ -159,17 +258,11 @@ public class MannequinTouchController_Final : MonoBehaviour
             _markerMat.color = Color.yellow;
         }
 
-        var r = _marker.GetComponent<Renderer>();
+        Renderer r = _marker.GetComponent<Renderer>();
         if (r != null) r.sharedMaterial = _markerMat;
 
         _marker.transform.localScale = Vector3.one * markerScale;
         _marker.SetActive(false);
-    }
-
-    void DestroyCollider(GameObject go)
-    {
-        var c = go.GetComponent<Collider>();
-        if (c != null) Destroy(c);
     }
 
     void Update()
@@ -199,11 +292,7 @@ public class MannequinTouchController_Final : MonoBehaviour
             Vector2 pos = Input.mousePosition;
             Vector2 delta = pos - _prevPos;
             _prevPos = pos;
-
-            if (_pressedOnBone && _selectedBone != null)
-                RotateBoneByDelta(_selectedBone, delta);
-            else
-                RotateRootByDelta(delta);
+            ProcessDrag(delta, false);
         }
         else if (Input.GetMouseButtonUp(0))
         {
@@ -214,6 +303,12 @@ public class MannequinTouchController_Final : MonoBehaviour
     void HandleTouch()
     {
         if (Input.touchCount == 0)
+        {
+            ClearPress();
+            return;
+        }
+
+        if (Input.touchCount >= 2)
         {
             ClearPress();
             return;
@@ -230,11 +325,7 @@ public class MannequinTouchController_Final : MonoBehaviour
         {
             Vector2 delta = t.position - _prevPos;
             _prevPos = t.position;
-
-            if (_pressedOnBone && _selectedBone != null)
-                RotateBoneByDelta(_selectedBone, delta);
-            else
-                RotateRootByDelta(delta);
+            ProcessDrag(delta, t.phase == TouchPhase.Stationary);
         }
         else if (t.phase == TouchPhase.Ended || t.phase == TouchPhase.Canceled)
         {
@@ -242,15 +333,33 @@ public class MannequinTouchController_Final : MonoBehaviour
         }
     }
 
+    void ProcessDrag(Vector2 delta, bool isStationary)
+    {
+        if (delta.magnitude < dragDeadZonePixels) return;
+
+        if (isStationary)
+            delta *= stationaryDeltaScale;
+
+        if (_pressedOnBone && _selectedBone != null)
+            RotateBoneByDeltaLocal(_selectedBone, delta);
+        else
+            RotateRootByDelta(delta);
+    }
+
     void EvaluatePress(Vector2 screenPos)
     {
-        _selectedBone = RayPickBoneViewport(screenPos);
+        _selectedBone = RayPickBone(screenPos);
         _pressedOnBone = (_selectedBone != null);
 
         _rootTargetRot = mannequinRoot.rotation;
 
         if (_pressedOnBone)
-            _boneTargetWorldRot = _selectedBone.rotation;
+        {
+            if (stopAnimationWhenManualBoneControlStarts)
+                EnterManualMode();
+
+            _boneTargetLocalRot = _selectedBone.localRotation;
+        }
     }
 
     void ClearPress()
@@ -259,15 +368,16 @@ public class MannequinTouchController_Final : MonoBehaviour
         _pressedOnBone = false;
     }
 
-    Transform RayPickBoneViewport(Vector2 screenPos)
+    Transform RayPickBone(Vector2 screenPos)
     {
-        Ray ray = ScreenPosToViewportRay(screenPos);
+        Ray ray = mainCam.ScreenPointToRay(screenPos);
 
-        if (Physics.Raycast(ray, out RaycastHit hit, 500f, boneLayerMask, QueryTriggerInteraction.Collide))
-        {
-            Transform t = hit.collider.transform;
-            return ResolveBoneFromHit(t);
-        }
+        RaycastHit hit;
+        if (Physics.Raycast(ray, out hit, 500f, boneLayerMask, QueryTriggerInteraction.Collide))
+            return ResolveBoneFromHit(hit.collider.transform);
+
+        if (Physics.SphereCast(ray, pickSphereRadius, out hit, 500f, boneLayerMask, QueryTriggerInteraction.Collide))
+            return ResolveBoneFromHit(hit.collider.transform);
 
         return null;
     }
@@ -298,12 +408,6 @@ public class MannequinTouchController_Final : MonoBehaviour
         return hitT;
     }
 
-    Ray ScreenPosToViewportRay(Vector2 screenPos)
-    {
-        Vector3 vp = mainCam.ScreenToViewportPoint(screenPos);
-        return mainCam.ViewportPointToRay(vp);
-    }
-
     void RotateRootByDelta(Vector2 delta)
     {
         float yaw = -delta.x * rootDegPerPixel;
@@ -321,16 +425,51 @@ public class MannequinTouchController_Final : MonoBehaviour
         _rootTargetRot = r;
     }
 
-    void RotateBoneByDelta(Transform bone, Vector2 delta)
+    void RotateBoneByDeltaLocal(Transform bone, Vector2 delta)
     {
-        float yaw = delta.x * boneDegPerPixel;
-        float pitch = -delta.y * boneDegPerPixel;
+        if (bone == null) return;
+        if (!_restLocalRot.TryGetValue(bone, out Quaternion rest)) return;
 
-        Quaternion r = _boneTargetWorldRot;
-        r = Quaternion.AngleAxis(yaw, mannequinRoot.up) * r;
-        r = Quaternion.AngleAxis(pitch, mannequinRoot.right) * r;
+        JointLimit j = null;
+        _jointMap.TryGetValue(bone, out j);
 
-        _boneTargetWorldRot = r;
+        float mul = selectedBoneSensitivity;
+        if (j != null) mul *= Mathf.Max(0.01f, j.sensitivity);
+
+        Vector2 d = delta * inputScale;
+        d.x = Mathf.Clamp(d.x, -maxDeltaPerFrame, maxDeltaPerFrame);
+        d.y = Mathf.Clamp(d.y, -maxDeltaPerFrame, maxDeltaPerFrame);
+
+        Quaternion rel = Quaternion.Inverse(rest) * _boneTargetLocalRot;
+        Vector3 e = NormalizeEuler(rel.eulerAngles);
+
+        float addX = -d.y * boneSwingDegPerPixel * mul;
+        float addY = d.x * boneTwistDegPerPixel * mul;
+        float addZ = -d.x * boneSwingDegPerPixel * 0.22f * mul;
+
+        addX *= 0.88f;
+        addY *= 0.82f;
+        addZ *= 0.72f;
+
+        if (j != null)
+        {
+            if (j.invertX) addX = -addX;
+            if (j.invertY) addY = -addY;
+            if (j.invertZ) addZ = -addZ;
+        }
+
+        e.x += addX;
+        e.y += addY;
+        e.z += addZ;
+
+        if (j != null)
+        {
+            if (j.limitX) e.x = Mathf.Clamp(e.x, j.minX, j.maxX);
+            if (j.limitY) e.y = Mathf.Clamp(e.y, j.minY, j.maxY);
+            if (j.limitZ) e.z = Mathf.Clamp(e.z, j.minZ, j.maxZ);
+        }
+
+        _boneTargetLocalRot = rest * Quaternion.Euler(e);
     }
 
     void ApplySmoothingAndClamp()
@@ -343,43 +482,29 @@ public class MannequinTouchController_Final : MonoBehaviour
 
         if (_selectedBone != null)
         {
-            _selectedBone.rotation = Quaternion.Slerp(
-                _selectedBone.rotation,
-                _boneTargetWorldRot,
+            _selectedBone.localRotation = Quaternion.Slerp(
+                _selectedBone.localRotation,
+                _boneTargetLocalRot,
                 1f - Mathf.Exp(-boneSmoothing * Time.deltaTime)
             );
 
-            ClampIfHinge(_selectedBone);
-
-            _boneTargetWorldRot = _selectedBone.rotation;
+            ClampJoint(_selectedBone);
+            _boneTargetLocalRot = _selectedBone.localRotation;
         }
     }
 
-    void ClampIfHinge(Transform bone)
+    void ClampJoint(Transform bone)
     {
         if (bone == null) return;
-        if (!_hingeMap.TryGetValue(bone, out HingeLimit h)) return;
+        if (!_jointMap.TryGetValue(bone, out JointLimit j)) return;
         if (!_restLocalRot.TryGetValue(bone, out Quaternion rest)) return;
 
         Quaternion rel = Quaternion.Inverse(rest) * bone.localRotation;
         Vector3 e = NormalizeEuler(rel.eulerAngles);
 
-        float v;
-        if (h.axis == Axis.X)
-        {
-            v = Mathf.Clamp(e.x, h.minDeg, h.maxDeg);
-            e = new Vector3(v, 0f, 0f);
-        }
-        else if (h.axis == Axis.Y)
-        {
-            v = Mathf.Clamp(e.y, h.minDeg, h.maxDeg);
-            e = new Vector3(0f, v, 0f);
-        }
-        else
-        {
-            v = Mathf.Clamp(e.z, h.minDeg, h.maxDeg);
-            e = new Vector3(0f, 0f, v);
-        }
+        if (j.limitX) e.x = Mathf.Clamp(e.x, j.minX, j.maxX);
+        if (j.limitY) e.y = Mathf.Clamp(e.y, j.minY, j.maxY);
+        if (j.limitZ) e.z = Mathf.Clamp(e.z, j.minZ, j.maxZ);
 
         bone.localRotation = rest * Quaternion.Euler(e);
     }
@@ -412,9 +537,50 @@ public class MannequinTouchController_Final : MonoBehaviour
         _marker.transform.position = _selectedBone.position;
     }
 
+    public void PlayIdle()
+    {
+        PlayAnimationState(idleStateName);
+    }
+
+    public void PlayWalk()
+    {
+        PlayAnimationState(walkStateName);
+    }
+
+    public void PlaySit()
+    {
+        PlayAnimationState(sitStateName);
+    }
+
+    void PlayAnimationState(string stateName)
+    {
+        if (animator == null) return;
+
+        _selectedBone = null;
+        _pressedOnBone = false;
+
+        animator.applyRootMotion = false;
+        animator.enabled = true;
+        animator.Rebind();
+        animator.Update(0f);
+        animator.CrossFade(stateName, 0.15f, 0);
+    }
+
+    public void EnterManualMode()
+    {
+        if (animator == null) return;
+        animator.enabled = false;
+    }
+
     public void ResetPose()
     {
-        foreach (var kv in _restLocalRot)
+        if (animator != null)
+        {
+            animator.applyRootMotion = false;
+            animator.enabled = false;
+        }
+
+        foreach (KeyValuePair<Transform, Quaternion> kv in _restLocalRot)
         {
             if (kv.Key == null) continue;
             kv.Key.localRotation = kv.Value;

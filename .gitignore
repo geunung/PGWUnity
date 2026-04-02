@@ -1,28 +1,46 @@
-# ===== Unity =====
-[Ll]ibrary/
-[Tt]emp/
-[Oo]bj/
-[Bb]uild/
-[Bb]uilds/
-[Ll]ogs/
-UserSettings/
+# [추천] 유니티 표준 .gitignore
 
-# ===== Visual Studio =====
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[MemoryCaptures]/
+/[UserSettings]/
+
+# Asset Store 패키지 중 제외하고 싶은 것이 있다면 추가
+# /[Aa]ssets/AssetStoreTools*
+
+# Visual Studio / VS Code 관련
 .vs/
 .vscode/
-
-# ===== OS =====
-.DS_Store
-Thumbs.db
-
-UpgradeLog.htm
-.vsconfig
-
-# ===== C# / Unity auto-generated =====
 *.csproj
 *.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svclog
+*.pdb
+*.opendb
+*.VC.db
 
-# Android builds / APK
+# OS 관련
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+Icon?
+ehthumbs.db
+
+# 빌드 결과물 (안드로이드/iOS/PC)
 *.apk
-test/*.apk
+*.aab
+*.unitypackage
+*.app
 
+# Crashlytics / 로그
+sysinfo.txt

@@ -3,7 +3,12 @@ guid: fee374a8a41f65c4e81603867c368eeb
 ModelImporter:
   serializedVersion: 22200
   internalIDToNameTable: []
-  externalObjects: {}
+  externalObjects:
+  - first:
+      type: UnityEngine:Material
+      assembly: UnityEngine.CoreModule
+      name: M_JeansMiniSkirt
+    second: {fileID: 2100000, guid: bedcfea8989df0e45bc98da1c6bc5ab7, type: 2}
   materials:
     materialImportMode: 2
     materialName: 0

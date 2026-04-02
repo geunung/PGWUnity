@@ -80,7 +80,10 @@ public class RebindSkinnedMeshToAvatar : MonoBehaviour
                 }
             }
 
-            smr.sharedMesh.RecalculateBounds();
+            if (smr.sharedMesh != null)
+            {
+                smr.sharedMesh.RecalculateBounds();
+            }
 
             changedCount++;
 
